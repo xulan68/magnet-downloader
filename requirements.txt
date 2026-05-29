@@ -1,0 +1,2 @@
+libtorrent-rasterbar==2.0.9
+requests==2.31.0
