@@ -18,16 +18,70 @@ class MagnetDownloader:
         self.save_path = Path(save_path)
         self.save_path.mkdir(parents=True, exist_ok=True)
         
-        # 创建session
-        self.session = lt.session()
-        self.session.listen_on(6881, 6891)
+        # 创建session并优化配置
+        self.session = self._create_optimized_session()
         
         self.handle = None
         self.info = None
         self.is_paused = False
         self.is_downloading = False
         self.torrent_name = ""
+    
+    def _create_optimized_session(self):
+        """创建优化的libtorrent session"""
+        session = lt.session()
         
+        # 设置监听端口范围
+        session.listen_on(6881, 6891)
+        
+        # 优化设置
+        settings = session.get_settings()
+        
+        # 1. 连接优化
+        settings['connections_limit'] = 500  # 最大连接数
+        settings['half_open_limit'] = 100    # 半开连接数
+        settings['max_allowed_in_request_queue'] = 2000  # 请求队列
+        
+        # 2. 上传/下载优化
+        settings['upload_rate_limit'] = 0    # 无上传限制（0表示无限制）
+        settings['download_rate_limit'] = 0  # 无下载限制
+        settings['max_out_request_queue'] = 500  # 最大出站请求队列
+        
+        # 3. DHT优化
+        settings['enable_dht'] = True
+        settings['dht_upload_rate_limit'] = 0
+        
+        # 4. UPnP/NAT穿透
+        settings['upnp_ignore_nonrouters'] = True
+        settings['enable_upnp'] = True
+        settings['enable_natpmp'] = True
+        
+        # 5. 性能优化
+        settings['aio_threads'] = 8  # 异步IO线程数
+        settings['checking_mem_usage'] = 256  # 检查内存使用
+        settings['disk_io_write_mode'] = 0  # 立即写入磁盘
+        
+        # 6. 缓存优化
+        settings['cache_size'] = 2048  # 缓存大小（MB）
+        settings['read_cache_line_size'] = 32
+        
+        session.set_settings(settings)
+        
+        # 启用DHT路由表
+        session.start_dht()
+        
+        # 添加DHT bootstrap节点
+        session.add_dht_node(("router.bittorrent.com", 6881))
+        session.add_dht_node(("dht.transmissionbt.com", 6881))
+        session.add_dht_node(("router.utorrent.com", 6881))
+        
+        # 添加tracker服务器
+        session.add_extension("ut_pex")
+        session.add_extension("ut_metadata")
+        session.add_extension("lt_trackers")
+        
+        return session
+    
     def add_magnet(self, magnet_uri: str) -> bool:
         """
         添加磁力链接
@@ -41,7 +95,14 @@ class MagnetDownloader:
         try:
             params = lt.parse_magnet_uri(magnet_uri)
             params.save_path = str(self.save_path)
+            
+            # 优化下载优先级
             self.handle = self.session.add_torrent(params)
+            
+            # 设置优先级为最高
+            if self.handle:
+                self.handle.set_priority(7)  # 最高优先级
+            
             self.is_downloading = True
             self.torrent_name = ""
             return True
