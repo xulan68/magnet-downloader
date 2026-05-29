@@ -74,39 +74,50 @@ class MagnetDownloader:
         Returns:
             包含下载信息的字典
         """
-        if not self.handle:
-            return {
-                'state': 'idle',
-                'progress': 0,
-                'downloaded': 0,
-                'total': 0,
-                'speed': 0,
-                'peers': 0,
-                'name': '',
-                'is_paused': False
-            }
-        
-        status = self.handle.status()
-        info = self.handle.get_torrent_info()
-        
-        return {
-            'state': str(status.state),
-            'progress': status.progress * 100,
-            'downloaded': status.total_done,
-            'total': status.total_wanted,
-            'speed': status.download_rate,
-            'peers': status.num_peers,
-            'name': info.name(),
-            'is_paused': self.is_paused,
-            'is_seeding': status.is_seeding
+        # 默认状态
+        default_status = {
+            'state': 'idle',
+            'progress': 0,
+            'downloaded': 0,
+            'total': 0,
+            'speed': 0,
+            'peers': 0,
+            'name': '',
+            'is_paused': False,
+            'is_seeding': False
         }
+        
+        if not self.handle:
+            return default_status
+        
+        try:
+            status = self.handle.status()
+            info = self.handle.get_torrent_info()
+            
+            return {
+                'state': str(status.state),
+                'progress': status.progress * 100,
+                'downloaded': status.total_done,
+                'total': status.total_wanted,
+                'speed': status.download_rate,
+                'peers': status.num_peers,
+                'name': info.name(),
+                'is_paused': self.is_paused,
+                'is_seeding': status.is_seeding
+            }
+        except Exception as e:
+            print(f"获取状态错误: {e}")
+            return default_status
     
     def is_complete(self) -> bool:
         """检查下载是否完成"""
         if not self.handle:
             return False
-        status = self.handle.status()
-        return status.is_seeding or status.progress == 1.0
+        try:
+            status = self.handle.status()
+            return status.is_seeding or status.progress == 1.0
+        except:
+            return False
     
     def get_save_path(self) -> str:
         """获取保存路径"""
