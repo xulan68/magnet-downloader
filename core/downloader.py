@@ -34,51 +34,67 @@ class MagnetDownloader:
         # 设置监听端口范围
         session.listen_on(6881, 6891)
         
-        # 优化设置
-        settings = session.get_settings()
+        # 获取settings对象
+        settings = lt.settings()
         
         # 1. 连接优化
-        settings['connections_limit'] = 500  # 最大连接数
-        settings['half_open_limit'] = 100    # 半开连接数
-        settings['max_allowed_in_request_queue'] = 2000  # 请求队列
+        settings.connections_limit = 500  # 最大连接数
+        settings.half_open_limit = 100    # 半开连接数
         
-        # 2. 上传/下载优化
-        settings['upload_rate_limit'] = 0    # 无上传限制（0表示无限制）
-        settings['download_rate_limit'] = 0  # 无下载限制
-        settings['max_out_request_queue'] = 500  # 最大出站请求队列
+        # 2. 上传/下载优化 (bit/s，0表示无限制)
+        settings.upload_rate_limit = 0    # 无上传限制
+        settings.download_rate_limit = 0  # 无下载限制
         
         # 3. DHT优化
-        settings['enable_dht'] = True
-        settings['dht_upload_rate_limit'] = 0
+        settings.enable_dht = True
+        settings.dht_upload_rate_limit = 0
         
         # 4. UPnP/NAT穿透
-        settings['upnp_ignore_nonrouters'] = True
-        settings['enable_upnp'] = True
-        settings['enable_natpmp'] = True
+        settings.upnp_ignore_nonrouters = True
+        settings.enable_upnp = True
+        settings.enable_natpmp = True
         
         # 5. 性能优化
-        settings['aio_threads'] = 8  # 异步IO线程数
-        settings['checking_mem_usage'] = 256  # 检查内存使用
-        settings['disk_io_write_mode'] = 0  # 立即写入磁盘
+        settings.aio_threads = 8  # 异步IO线程数
+        settings.disk_io_write_mode = 0  # 立即写入磁盘
         
         # 6. 缓存优化
-        settings['cache_size'] = 2048  # 缓存大小（MB）
-        settings['read_cache_line_size'] = 32
+        settings.cache_size = 2048  # 缓存大小（MB）
+        settings.read_cache_line_size = 32
         
-        session.set_settings(settings)
+        # 应用settings
+        try:
+            session.set_settings(settings)
+        except AttributeError:
+            # libtorrent 2.0+ 版本的兼容性处理
+            try:
+                session.apply_settings(settings)
+            except:
+                # 如果以上都不行，跳过settings应用，使用默认配置
+                print("警告: 无法应用自定义设置，使用默认配置")
+                pass
         
         # 启用DHT路由表
-        session.start_dht()
+        try:
+            session.start_dht()
+        except:
+            pass
         
         # 添加DHT bootstrap节点
-        session.add_dht_node(("router.bittorrent.com", 6881))
-        session.add_dht_node(("dht.transmissionbt.com", 6881))
-        session.add_dht_node(("router.utorrent.com", 6881))
+        try:
+            session.add_dht_node(("router.bittorrent.com", 6881))
+            session.add_dht_node(("dht.transmissionbt.com", 6881))
+            session.add_dht_node(("router.utorrent.com", 6881))
+        except:
+            pass
         
-        # 添加tracker服务器
-        session.add_extension("ut_pex")
-        session.add_extension("ut_metadata")
-        session.add_extension("lt_trackers")
+        # 添加扩展支持
+        try:
+            session.add_extension("ut_pex")
+            session.add_extension("ut_metadata")
+            session.add_extension("lt_trackers")
+        except:
+            pass
         
         return session
     
@@ -101,7 +117,10 @@ class MagnetDownloader:
             
             # 设置优先级为最高
             if self.handle:
-                self.handle.set_priority(7)  # 最高优先级
+                try:
+                    self.handle.set_priority(7)  # 最高优先级
+                except:
+                    pass
             
             self.is_downloading = True
             self.torrent_name = ""
