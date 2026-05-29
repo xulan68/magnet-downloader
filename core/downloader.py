@@ -18,8 +18,12 @@ class MagnetDownloader:
         self.save_path = Path(save_path)
         self.save_path.mkdir(parents=True, exist_ok=True)
         
-        # 创建session并优化配置
-        self.session = self._create_optimized_session()
+        # 创建session
+        self.session = lt.session()
+        self.session.listen_on(6881, 6891)
+        
+        # 应用基础优化配置
+        self._apply_optimizations()
         
         self.handle = None
         self.info = None
@@ -27,76 +31,49 @@ class MagnetDownloader:
         self.is_downloading = False
         self.torrent_name = ""
     
-    def _create_optimized_session(self):
-        """创建优化的libtorrent session"""
-        session = lt.session()
-        
-        # 设置监听端口范围
-        session.listen_on(6881, 6891)
-        
-        # 获取settings对象
-        settings = lt.settings()
-        
-        # 1. 连接优化
-        settings.connections_limit = 500  # 最大连接数
-        settings.half_open_limit = 100    # 半开连接数
-        
-        # 2. 上传/下载优化 (bit/s，0表示无限制)
-        settings.upload_rate_limit = 0    # 无上传限制
-        settings.download_rate_limit = 0  # 无下载限制
-        
-        # 3. DHT优化
-        settings.enable_dht = True
-        settings.dht_upload_rate_limit = 0
-        
-        # 4. UPnP/NAT穿透
-        settings.upnp_ignore_nonrouters = True
-        settings.enable_upnp = True
-        settings.enable_natpmp = True
-        
-        # 5. 性能优化
-        settings.aio_threads = 8  # 异步IO线程数
-        settings.disk_io_write_mode = 0  # 立即写入磁盘
-        
-        # 6. 缓存优化
-        settings.cache_size = 2048  # 缓存大小（MB）
-        settings.read_cache_line_size = 32
-        
-        # 应用settings
+    def _apply_optimizations(self):
+        """应用优化配置"""
         try:
-            session.set_settings(settings)
-        except AttributeError:
-            # libtorrent 2.0+ 版本的兼容性处理
+            # 尝试使用 session 的 set_settings 方法
+            settings = self.session.get_settings()
+            
+            # 连接优化
+            settings['connections_limit'] = 500
+            settings['half_open_limit'] = 100
+            
+            # 速率优化
+            settings['upload_rate_limit'] = 0
+            settings['download_rate_limit'] = 0
+            
+            # DHT优化
+            settings['enable_dht'] = True
+            
+            # UPnP/NAT
+            settings['enable_upnp'] = True
+            settings['enable_natpmp'] = True
+            
+            # 缓存优化
+            settings['cache_size'] = 2048
+            
+            self.session.set_settings(settings)
+        except:
+            # 如果设置失败，尝试直接配置
             try:
-                session.apply_settings(settings)
+                # 启用DHT
+                self.session.start_dht()
+                
+                # 添加DHT bootstrap节点
+                self.session.add_dht_node(("router.bittorrent.com", 6881))
+                self.session.add_dht_node(("dht.transmissionbt.com", 6881))
+                self.session.add_dht_node(("router.utorrent.com", 6881))
+                
+                # 添加扩展
+                self.session.add_extension("ut_pex")
+                self.session.add_extension("ut_metadata")
             except:
-                # 如果以上都不行，跳过settings应用，使用默认配置
-                print("警告: 无法应用自定义设置，使用默认配置")
+                # 如果以上都失败，使用默认配置
+                print("信息: 使用默认libtorrent配置")
                 pass
-        
-        # 启用DHT路由表
-        try:
-            session.start_dht()
-        except:
-            pass
-        
-        # 添加DHT bootstrap节点
-        try:
-            session.add_dht_node(("router.bittorrent.com", 6881))
-            session.add_dht_node(("dht.transmissionbt.com", 6881))
-            session.add_dht_node(("router.utorrent.com", 6881))
-        except:
-            pass
-        
-        # 添加扩展支持
-        try:
-            session.add_extension("ut_pex")
-            session.add_extension("ut_metadata")
-            session.add_extension("lt_trackers")
-        except:
-            pass
-        
-        return session
     
     def add_magnet(self, magnet_uri: str) -> bool:
         """
@@ -112,16 +89,7 @@ class MagnetDownloader:
             params = lt.parse_magnet_uri(magnet_uri)
             params.save_path = str(self.save_path)
             
-            # 优化下载优先级
             self.handle = self.session.add_torrent(params)
-            
-            # 设置优先级为最高
-            if self.handle:
-                try:
-                    self.handle.set_priority(7)  # 最高优先级
-                except:
-                    pass
-            
             self.is_downloading = True
             self.torrent_name = ""
             return True
@@ -176,7 +144,7 @@ class MagnetDownloader:
         try:
             status = self.handle.status()
             
-            # 尝试获取种子名称（只有当元数据已加载时才有效）
+            # 尝试获取种子名称
             name = self.torrent_name
             if not name:
                 try:
@@ -185,7 +153,6 @@ class MagnetDownloader:
                         name = info.name()
                         self.torrent_name = name
                 except:
-                    # 元数据可能还没加载，使用hex name作为备选
                     try:
                         name = self.handle.name()
                     except:
@@ -204,7 +171,6 @@ class MagnetDownloader:
             }
         except Exception as e:
             print(f"获取状态错误: {e}")
-            # 返回部分有效状态而不是完全默认
             try:
                 status = self.handle.status()
                 return {
