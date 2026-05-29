@@ -26,6 +26,7 @@ class MagnetDownloader:
         self.info = None
         self.is_paused = False
         self.is_downloading = False
+        self.torrent_name = ""
         
     def add_magnet(self, magnet_uri: str) -> bool:
         """
@@ -42,6 +43,7 @@ class MagnetDownloader:
             params.save_path = str(self.save_path)
             self.handle = self.session.add_torrent(params)
             self.is_downloading = True
+            self.torrent_name = ""
             return True
         except Exception as e:
             print(f"添加磁力链接失败: {e}")
@@ -66,6 +68,7 @@ class MagnetDownloader:
             self.handle = None
             self.is_downloading = False
             self.is_paused = False
+            self.torrent_name = ""
     
     def get_status(self) -> dict:
         """
@@ -92,7 +95,21 @@ class MagnetDownloader:
         
         try:
             status = self.handle.status()
-            info = self.handle.get_torrent_info()
+            
+            # 尝试获取种子名称（只有当元数据已加载时才有效）
+            name = self.torrent_name
+            if not name:
+                try:
+                    info = self.handle.get_torrent_info()
+                    if info:
+                        name = info.name()
+                        self.torrent_name = name
+                except:
+                    # 元数据可能还没加载，使用hex name作为备选
+                    try:
+                        name = self.handle.name()
+                    except:
+                        name = "下载中..."
             
             return {
                 'state': str(status.state),
@@ -101,13 +118,28 @@ class MagnetDownloader:
                 'total': status.total_wanted,
                 'speed': status.download_rate,
                 'peers': status.num_peers,
-                'name': info.name(),
+                'name': name,
                 'is_paused': self.is_paused,
                 'is_seeding': status.is_seeding
             }
         except Exception as e:
             print(f"获取状态错误: {e}")
-            return default_status
+            # 返回部分有效状态而不是完全默认
+            try:
+                status = self.handle.status()
+                return {
+                    'state': str(status.state),
+                    'progress': status.progress * 100,
+                    'downloaded': status.total_done,
+                    'total': status.total_wanted,
+                    'speed': status.download_rate,
+                    'peers': status.num_peers,
+                    'name': self.torrent_name or "下载中...",
+                    'is_paused': self.is_paused,
+                    'is_seeding': status.is_seeding
+                }
+            except:
+                return default_status
     
     def is_complete(self) -> bool:
         """检查下载是否完成"""
